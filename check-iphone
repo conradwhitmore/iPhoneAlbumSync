@@ -1,0 +1,100 @@
+#!/bin/bash
+set -euo pipefail
+
+project_dir="$(cd "$(dirname "$0")" && pwd)"
+runtime="$HOME/Library/Application Support/iPhoneAlbumSync/runtime-v1/bin/python3"
+portable="/Applications/iPhone 相册同步.app/Contents/Resources/Python/bin/python3"
+if [[ ! -x "$runtime" && -x "$portable" ]]; then
+    runtime="$portable"
+fi
+if [[ ! -x "$runtime" ]]; then
+    echo "找不到 iPhone 相册同步的 Python 运行环境。" >&2
+    exit 1
+fi
+
+PYTHONPATH="$project_dir/iPhoneSync" "$runtime" -u -B - "$@" <<'PY'
+import argparse
+import asyncio
+import fcntl
+import json
+from pathlib import Path, PurePosixPath
+
+from sync_backend import AfcService, IMAGES, VIDEOS, SyncDeferred, connect_phone, unlocked_only
+
+
+async def read_dcim(phone):
+    async with asyncio.timeout(15), AfcService(phone) as afc:
+        folders = [name for name in await afc.listdir("/DCIM") if name not in (".", "..")]
+        print(f"/DCIM 可读 · 顶层 {len(folders)} 个条目")
+        extensions = {"照片": IMAGES, "视频": VIDEOS}
+        samples = {}
+        for folder in sorted(folders, reverse=True):
+            directory = PurePosixPath("/DCIM", folder)
+            if (await afc.stat(str(directory)))["st_ifmt"] != "S_IFDIR":
+                continue
+            for name in await afc.listdir(str(directory)):
+                path = directory / name
+                for kind, suffixes in extensions.items():
+                    if path.suffix.lower() in suffixes:
+                        samples.setdefault(kind, path)
+            if samples.keys() == extensions.keys():
+                break
+
+        for kind in extensions:
+            path = samples.get(kind)
+            if path is None:
+                print(f"{kind} · 未找到可供抽读的样本")
+                continue
+            size = (await afc.stat(str(path)))["st_size"]
+            handle = await afc.fopen(str(path), "r")
+            try:
+                data = await afc.fread(handle, min(size, 4096))
+            finally:
+                await afc.fclose(handle)
+            if not data or len(data) != min(size, 4096):
+                raise RuntimeError(f"{kind} {path.suffix} 抽读不完整")
+            print(f"{kind} {path.suffix} · 读取 {len(data)} 字节")
+
+
+async def check(serial, direct_ip):
+    try:
+        async with await connect_phone(serial, direct_ip=direct_ip, report=print) as phone:
+            result = 0
+            try:
+                await read_dcim(phone)
+            except Exception as exc:
+                print(f"AFC 读取失败 · {type(exc).__name__}: {exc}")
+                result = 1
+            try:
+                async with unlocked_only(phone):
+                    print("锁屏状态 · 已解锁")
+            except SyncDeferred as exc:
+                print(f"锁屏状态 · {exc}")
+            return result
+    except Exception as exc:
+        print(f"Wi-Fi 检测失败 · {type(exc).__name__}: {exc}")
+        return 1
+
+
+parser = argparse.ArgumentParser(prog="check-iphone", description="只读检测 iPhone 的 Wi-Fi 和 DCIM 连接。")
+parser.add_argument("task", nargs="?", help="App 里的任务名称；只有一个已配置设备的任务时可省略")
+args = parser.parse_args()
+folder = Path.home() / "Library/Application Support/iPhoneAlbumSync"
+try:
+    preferences = json.loads((folder / "preferences.json").read_text())
+except (OSError, ValueError) as exc:
+    parser.exit(1, f"无法读取 App 的同步任务设置 · {exc}\n")
+tasks = [task for task in preferences.get("mappings", []) if task.get("phoneID")]
+if args.task is not None:
+    tasks = [task for task in tasks if task.get("name") == args.task]
+if len(tasks) != 1:
+    parser.exit(1, "请在 App 中配置设备，并用唯一的任务名称执行 check-iphone。\n")
+task = tasks[0]
+
+with (folder / "progress.lock").open("a") as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        parser.exit(75, "App 正在同步或预览，请在本轮结束后执行检测。\n")
+    raise SystemExit(asyncio.run(check(task["phoneID"], task.get("directIP"))))
+PY
