@@ -6,6 +6,8 @@
 
 Import photos, videos and Live Photos from an iPhone into an Apple Photos library over your local network. This macOS menu bar app pairs each phone with a library you choose, including libraries on external drives. After the initial USB pairing, imports can run in the background over Wi-Fi, without opening Photos or using iCloud storage.
 
+![Mac main window showing an example Wi-Fi backup task, caught up and scheduled to check every six hours](docs/images/main-window.png)
+
 ## Installation
 
 If you have a project installer for your Mac’s architecture, open the `.pkg` to install the app in Applications. The installer bundles Python and its dependencies. To build from source, install the Xcode Command Line Tools and uv, then run these commands from the repository root. [Install uv](https://docs.astral.sh/uv/getting-started/installation/)

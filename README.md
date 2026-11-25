@@ -6,6 +6,8 @@
 
 这是一个运行在 Mac 菜单栏的照片备份工具。首次通过 USB 配对后，Mac 可以通过局域网把 iPhone 上的照片、视频和实况照片分批追加到指定的 Apple 照片图库（`.photoslibrary`）。可以给不同 iPhone 分别指定图库，也可以把图库放在外置硬盘上。日常备份无需插线、购买 iCloud 空间或打开「照片」窗口。
 
+![Mac 主界面：同一 Wi-Fi 下自动备份，示例任务已追平，之后每 6 小时检查](docs/images/main-window.png)
+
 ## 安装
 
 如果拿到与 Mac 芯片架构匹配的项目安装包，运行 `.pkg` 即可安装到「应用程序」。这个安装包内含 Python 运行环境和依赖。也可以从源码构建：在 Mac 上安装 Xcode 命令行工具和 uv，然后在仓库根目录执行以下命令。[uv 安装说明](https://docs.astral.sh/uv/getting-started/installation/)
